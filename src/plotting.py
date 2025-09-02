@@ -130,9 +130,9 @@ def plot_metrics_compare(
 # 使用示例
 if __name__ == "__main__":
     plot_metrics_compare(
-        csv_a="results/stp_gsr/csv/run1/metrics.csv",
-        csv_b="results/hyper_gsr/csv/trans/run_baseline/metrics.csv",
-        labels=("STP-GSR", "HyperGSR(baseline)"),
-        out_dir="models/STP-GSR/model_results/plots_baseline",
-        prefix="stp_vs_hyper_baseline"
+        csv_a="results/stp_gsr/csv/run_stp_gsr/metrics.csv",
+        csv_b="results/hyper_gsr/csv/trans/run_coord/metrics.csv",
+        labels=("STP-GSR", "HyperGSR(coord)"),
+        out_dir="model_results/plots_coord",
+        prefix="stp_vs_hyper_coord"
     )
