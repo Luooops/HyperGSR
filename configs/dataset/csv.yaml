@@ -1,0 +1,14 @@
+name: 'csv'
+
+n_samples: 100
+
+# CSV path
+source_csv_path: 'dataset/gsr_data/lr_train_.csv'
+target_csv_path: 'dataset/gsr_data/hr_train_.csv'
+roi_coords_csv: 'dataset/gsr_data/coords_hr.csv'
+
+n_source_nodes: 160
+n_target_nodes: 268
+
+node_feat_init: 'adj'
+node_feat_dim: 160

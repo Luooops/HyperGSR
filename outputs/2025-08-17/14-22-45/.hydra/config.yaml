@@ -1,0 +1,35 @@
+experiment:
+  n_epochs: 60
+  batch_size: 16
+  lr: 0.001
+  log_val_loss: false
+  base_dir: results
+  run_name: run1
+  kfold:
+    n_splits: 3
+    shuffle: true
+    random_state: 42
+dataset:
+  name: csv
+  n_samples: 100
+  source_csv_path: dataset/gsr_data/lr_train_.csv
+  target_csv_path: dataset/gsr_data/hr_train_.csv
+  n_source_nodes: 160
+  n_target_nodes: 268
+  node_feat_init: adj
+  node_feat_dim: 160
+model:
+  name: hyper_gsr
+  target_edge_initializer:
+    num_heads: 4
+    edge_dim: 1
+    dropout: 0.2
+    beta: false
+  hyper_dual_learner:
+    in_dim: 1
+    hidden_dim: 32
+    dropout: 0.0
+    mode: trans
+    heads: 2
+    use_hyper_emb: true
+    edge_dim: 0

@@ -1,0 +1,20 @@
+defaults:
+  - _self_
+  - dataset: csv
+  - model: stp_gsr
+
+experiment:
+  n_epochs: 60
+  batch_size: 16
+
+  lr: 0.001
+  log_val_loss: False                   # Indicates whether to log validation loss every epoch. Could be resource intensive
+
+  base_dir: 'results'
+  # run_name: 'run_shrink001_improved'
+  run_name: 'run_stp_gsr'
+
+  kfold:
+    n_splits: 3
+    shuffle: True
+    random_state: 42
