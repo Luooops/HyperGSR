@@ -14,6 +14,13 @@ from src.dataset import load_dataset
 def main(config):
     torch.cuda.empty_cache()
 
+    # Set random seed for reproducibility (before data loading)
+    random_seed = config.experiment.kfold.random_state
+    torch.manual_seed(random_seed)
+    torch.cuda.manual_seed(random_seed)
+    torch.cuda.manual_seed_all(random_seed)
+    np.random.seed(random_seed)
+
     if torch.cuda.is_available():
         print("Running on GPU")
     else:

@@ -100,7 +100,6 @@ class TargetEdgeInitializer(nn.Module):
       1) TransformerConv on LR graph -> node embeddings
       2) X^T X hot-start on HR
       3) take upper-tri entries as dual-node features
-      4) cache the full matrix for ROI features
     """
     def __init__(self, n_source_nodes, n_target_nodes, num_heads=4, edge_dim=1,
                  dropout=0.2, beta=False):
@@ -115,7 +114,6 @@ class TargetEdgeInitializer(nn.Module):
             beta=beta,
         )
         self.bn1 = GraphNorm(n_target_nodes)
-        self.n_target_nodes = n_target_nodes
 
     def forward(self, data):
         x, edge_index, edge_attr = data.x, data.pos_edge_index, data.edge_attr
@@ -123,10 +121,6 @@ class TargetEdgeInitializer(nn.Module):
         x = self.bn1(x)
         x = F.relu(x)
         xt = x.T @ x                                  # [n_t, n_t]
-        
-        # Cache the full matrix for ROI features
-        self.cached_matrix = xt
-        
         ut_mask = torch.triu(torch.ones_like(xt), diagonal=1).bool()
         x_dual = torch.masked_select(xt, ut_mask).view(-1, 1)  # [M,1]
         return x_dual
@@ -146,7 +140,8 @@ class TwoStepBipartiteLayer(nn.Module):
     """
     def __init__(self, n_t: int, hidden_dim: int = 32,
                  mode: str = 'spmm', heads: int = 4, dropout: float = 0.0,
-                 edge_dim: int = 0, use_hyper_coords: bool = False):
+                 use_hyper_emb: bool = True, edge_dim: int = 0,
+                 use_edge_distance: bool = False, use_hyper_coords: bool = False):
         super().__init__()
         assert mode in ['spmm', 'sage', 'gat', 'trans']
         self.mode = mode
@@ -155,6 +150,7 @@ class TwoStepBipartiteLayer(nn.Module):
         self.drop = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
         self.heads = heads
         self.edge_dim = edge_dim
+        self.use_edge_distance = use_edge_distance
         self.use_hyper_coords = use_hyper_coords
 
         # cache structures (on CPU buffers, moved on demand)
@@ -176,24 +172,7 @@ class TwoStepBipartiteLayer(nn.Module):
             self.lin_in  = nn.Linear(hidden_dim, hidden_dim)
             self.lin_out = nn.Linear(hidden_dim, hidden_dim)
 
-        # Hyperedge feature MLP for attention backends
-        if self.mode in ['sage', 'gat', 'trans']:
-            if self.use_hyper_coords:
-                # ROI feature (n_t) + ROI coords (3) = n_t + 3
-                self.hyper_mlp = nn.Sequential(
-                    nn.Linear(n_t + 3, hidden_dim),
-                    nn.ReLU(),
-                    nn.Linear(hidden_dim, hidden_dim),
-                )
-            else:
-                # only ROI feature (n_t)
-                self.hyper_mlp = nn.Sequential(
-                    nn.Linear(n_t, hidden_dim),
-                    nn.ReLU(),
-                    nn.Linear(hidden_dim, hidden_dim),
-                )
-        else:
-            self.hyper_mlp = None
+        self.hyper_init = nn.Embedding(n_t, hidden_dim) if (use_hyper_emb and self.mode in ['sage','gat','trans']) else None
 
         if self.mode == 'sage':
             self.u2h = SAGEConv((hidden_dim, hidden_dim), hidden_dim)
@@ -209,6 +188,20 @@ class TwoStepBipartiteLayer(nn.Module):
                                               heads=heads, beta=False, dropout=dropout, edge_dim=edge_dim)
                 self.h2u = PYGTransformerConv((hidden_dim, hidden_dim), hidden_dim // heads,
                                               heads=heads, beta=False, dropout=dropout, edge_dim=edge_dim)
+                # --- [新增] 当未显式提供 edge_attr 时的可学习 fallback ---
+                # 纯离散：ROI 身份、端点角色(LEFT/RIGHT)、边桶打散
+                if not self.use_edge_distance and not self.use_hyper_coords:
+                    self._edgeattr_roi_dim   = 8
+                    self._edgeattr_role_dim  = 2
+                    self._edgeattr_bucket_dim= 8
+                    self.roi_id_emb   = nn.Embedding(n_t, self._edgeattr_roi_dim)
+                    self.role_emb     = nn.Embedding(2,   self._edgeattr_role_dim)      # 0: LEFT(i) / 1: RIGHT(j)
+                    self.bucket_emb   = nn.Embedding(64,  self._edgeattr_bucket_dim)     # 64 个桶，不依赖坐标
+                    in_dim = self._edgeattr_roi_dim + self._edgeattr_role_dim + self._edgeattr_bucket_dim
+                    self.edge_attr_proj = nn.Sequential(
+                        nn.Linear(in_dim, edge_dim),
+                        nn.LayerNorm(edge_dim)
+                    )
             else:
                 # fallback to GAT if no edge_attr is needed
                 self.u2h = GATConv((hidden_dim, hidden_dim), hidden_dim,
@@ -226,6 +219,47 @@ class TwoStepBipartiteLayer(nn.Module):
             self._e2h = self.e2h_cpu.to(device)
             self._h2e = self.h2e_cpu.to(device)
         return self._e2h, self._h2e
+
+    def _build_learned_edge_attrs(self, device):
+        """
+        当外部未提供 edge_attr 时，基于离散身份自动生成 (不使用任何坐标)。
+        返回: attr_e2h, attr_h2e，形状均为 [2M, edge_dim]
+        """
+        e2h, h2e = self._get_edge_index(device)  # [2, 2M]
+        # ----- e2h: edge_id -> roi_id -----
+        e_ids = e2h[0].long()    # [2M]
+        r_ids = e2h[1].long()    # [2M]
+
+        # 端点角色：ROI 是否是该边的左端点 i；否则为 RIGHT(j)
+        left_endpoint = self.edges_ij[e_ids, 0]          # [2M]
+        role_idx = (r_ids != left_endpoint).long()       # 0: LEFT(i), 1: RIGHT(j)
+
+        # 边桶：用 e_id 做模运算，纯打散
+        bucket_idx = (e_ids % self.bucket_emb.num_embeddings).long()
+
+        feat_e2h = torch.cat([
+            self.roi_id_emb(r_ids),                      # ROI 身份
+            self.role_emb(role_idx),                     # 端点角色
+            self.bucket_emb(bucket_idx)                  # 边桶
+        ], dim=-1)
+        attr_e2h = self.edge_attr_proj(feat_e2h)         # → [2M, edge_dim]
+
+        # ----- h2e: roi_id -> edge_id -----
+        r_ids2 = h2e[0].long()
+        e_ids2 = h2e[1].long()
+        left2  = self.edges_ij[e_ids2, 0]
+        role2  = (r_ids2 != left2).long()
+        bucket2= (e_ids2 % self.bucket_emb.num_embeddings).long()
+
+        feat_h2e = torch.cat([
+            self.roi_id_emb(r_ids2),
+            self.role_emb(role2),
+            self.bucket_emb(bucket2)
+        ], dim=-1)
+        attr_h2e = self.edge_attr_proj(feat_h2e)         # → [2M, edge_dim]
+
+        return attr_e2h, attr_h2e
+
 
     @torch.no_grad()
     def _degrees(self, B: torch.Tensor):
@@ -251,14 +285,13 @@ class TwoStepBipartiteLayer(nn.Module):
 
         e2h, h2e = self._get_edge_index(device)
 
-        # Generate hyperedge features for attention backends
-        if self.hyper_mlp is not None:
-            if X_h is not None:
-                H = self.hyper_mlp(X_h)                         # [n_t, hidden]
+        if X_h is None:
+            if self.hyper_init is not None:
+                H = self.hyper_init.weight                      # [n_t, hidden]
             else:
                 H = torch.zeros(self.n_t, self.hidden, device=device)
         else:
-            H = torch.zeros(self.n_t, self.hidden, device=device)
+            H = X_h
 
         if self.mode == 'sage':
             H = self.u2h((X_e, H), e2h)
@@ -274,6 +307,9 @@ class TwoStepBipartiteLayer(nn.Module):
 
         # 'trans'
         if self.edge_dim > 0:
+            # 若未显式提供 edge_attr，则自动生成可学习的离散 edge_attr
+            if (e2h_edge_attr is None) or (h2e_edge_attr is None):
+                e2h_edge_attr, h2e_edge_attr = self._build_learned_edge_attrs(device)
             H = self.u2h((X_e, H), e2h, edge_attr=e2h_edge_attr)
             H = self.drop(H)
             X_out = self.h2u((H, X_e), h2e, edge_attr=h2e_edge_attr)
@@ -293,7 +329,8 @@ class HyperDualLearner(nn.Module):
     def __init__(self, n_target_nodes: int, in_dim: int,
         hidden_dim: int = 32, dropout: float = 0.0,
         mode: str = 'spmm', heads: int = 4,
-        edge_dim: int = 0, use_hyper_coords: bool = False,
+        use_hyper_emb: bool = True, edge_dim: int = 0,
+        use_edge_distance: bool = False, use_hyper_coords: bool = False,
         use_shrink_output: bool = False, shrink_threshold: float = 0.01):
         super().__init__()
         self.n_t = n_target_nodes
@@ -304,20 +341,22 @@ class HyperDualLearner(nn.Module):
             mode=mode,
             heads=heads,
             dropout=dropout,
+            use_hyper_emb=use_hyper_emb,
             edge_dim=edge_dim,
+            use_edge_distance=use_edge_distance,
             use_hyper_coords=use_hyper_coords,
         )
         self.readout = nn.Linear(hidden_dim, 1)
         self.use_shrink_output = use_shrink_output
 
         if use_shrink_output:
-            self.shrink = nn.Parameter(torch.tensor(0.01))
+            self.shrink = nn.Parameter(torch.tensor(shrink_threshold))
 
     def forward(self, x_dual: torch.Tensor, x_hyper: torch.Tensor = None,
                 e2h_edge_attr: torch.Tensor = None, h2e_edge_attr: torch.Tensor = None):
         x = self.pre(x_dual)                                  # [M, hidden]
         x = self.layer(x, x_hyper, e2h_edge_attr, h2e_edge_attr)
-        # y = _min_max_normalize(self.readout(x))               # [M,1] in [0,1]
+        
         if self.use_shrink_output:
             y_raw = self.readout(x)               # [M, 1]
             lam   = self.shrink.abs()
@@ -371,6 +410,7 @@ class HyperGSR(nn.Module):
         dropout  = getattr(hd_conf, "dropout", 0.0)
         mode     = getattr(hd_conf, "mode", "spmm")
         heads    = getattr(hd_conf, "heads", 4)
+        use_h_emb= (getattr(hd_conf, "use_hyper_emb", True) and mode in ['sage','gat','trans'] and not self.use_hyper_coords)
         edge_dim = getattr(hd_conf, "edge_dim", 0)    # set 1 for transformer edge_attr
         use_shrink_output = getattr(hd_conf, "use_shrink_output", True)
         shrink_threshold = getattr(hd_conf, "shrink_threshold", 0.01)
@@ -387,6 +427,15 @@ class HyperGSR(nn.Module):
             self.edge_geo_mlp = None
             extra_in = 0
 
+        # ROI xyz -> hyperedge feature MLP (used only in 'sage'/'gat'/'trans')
+        if self.use_hyper_coords:
+            self.roi_mlp = nn.Sequential(
+                nn.Linear(3, hidden), nn.ReLU(),
+                nn.Linear(hidden, hidden),
+            )
+        else:
+            self.roi_mlp = None
+
         in_dim = 1 + extra_in  # base dual feature is 1-D from initializer
 
         self.hyper_dual = HyperDualLearner(
@@ -396,10 +445,12 @@ class HyperGSR(nn.Module):
             dropout=dropout,
             mode=mode,
             heads=heads,
+            use_hyper_emb=use_h_emb,
             edge_dim=edge_dim,
-            use_hyper_coords=self.use_hyper_coords,
             use_shrink_output=use_shrink_output,
             shrink_threshold=shrink_threshold,
+            use_edge_distance=self.use_edge_distance,
+            use_hyper_coords=self.use_hyper_coords,
         )
 
         # cache for geometry based on shared coords (filled on first forward)
@@ -460,20 +511,9 @@ class HyperGSR(nn.Module):
                 e2h_attr = d_rep
                 h2e_attr = d_rep
 
-        # C) hyperedge features for attention backends
-        if self.mode in ['sage', 'gat', 'trans']:
-            # Get ROI features from cached matrix (each row is a ROI feature)
-            roi_features = self.target_edge_initializer.cached_matrix  # [n_t, n_t]
-            
-            if self.use_hyper_coords and (self._roi_coords_std is not None):
-                # Concat ROI features (n_t) + ROI coords (3)
-                roi_coords_device = self._roi_coords_std.to(device)
-                x_hyper = torch.cat([roi_features, roi_coords_device], dim=-1)  # [n_t, n_t+3]
-            else:
-                # Use ROI features only
-                x_hyper = roi_features  # [n_t, n_t]
-        else:
-            x_hyper = None
+        # C) hyperedge (ROI) features from coords (attention backends only)
+        if (self.roi_mlp is not None) and (self._roi_coords_std is not None):
+            x_hyper = self.roi_mlp(self._roi_coords_std.to(device))    # [n_t, hidden]
 
         # D) hyper-dual learner
         dual_pred_x = self.hyper_dual(x_dual, x_hyper, e2h_attr, h2e_attr)  # [M,1], min-max to [0,1]

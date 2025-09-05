@@ -18,14 +18,15 @@ hyper_dual_learner:
   dropout: 0.1
   mode: trans            # Use TransformerConv for bidirectional bipartite message passing
   heads: 4
-  edge_dim: 0            # **Enable** edge_attr dimension=1 (use distance as attribute for each incidence edge)
+  edge_dim: 1            # **Enable** edge_attr dimension=1 (use distance as attribute for each incidence edge)
+  use_hyper_emb: True
 
   # ---- geometry priors (new) ----
-  use_edge_distance: false
+  use_edge_distance: False
   edge_geo_dim: 8
   dist_norm: zscore
-  use_hyper_coords: false
+  use_hyper_coords: False
 
   # ---- shrink output ----
-  use_shrink_output: 
+  use_shrink_output: True
   shrink_threshold: 0.01

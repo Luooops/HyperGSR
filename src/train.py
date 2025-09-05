@@ -30,6 +30,13 @@ def load_roi_coords_csv(csv_path: str) -> torch.Tensor:
     return coords
 
 def load_model(config):
+    # Set random seed before model initialization for reproducible weight initialization
+    random_seed = config.experiment.kfold.random_state
+    torch.manual_seed(random_seed)
+    torch.cuda.manual_seed(random_seed)
+    torch.cuda.manual_seed_all(random_seed)
+    np.random.seed(random_seed)
+    
     if config.model.name == 'stp_gsr':
         return STPGSR(config)
     elif config.model.name == 'direct_sr':
@@ -91,6 +98,13 @@ def train(config,
           res_dir):
     n_target_nodes = config.dataset.n_target_nodes  # n_t
 
+    # Set random seed for reproducibility
+    random_seed = config.experiment.kfold.random_state
+    torch.manual_seed(random_seed)
+    torch.cuda.manual_seed(random_seed)
+    torch.cuda.manual_seed_all(random_seed)
+    np.random.seed(random_seed)
+
     # Initialize model, optmizer, and loss function
     model = load_model(config)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.experiment.lr)
@@ -104,7 +118,7 @@ def train(config,
     start_time = time.time()
     gpu_memory_usage = []
     peak_gpu_memory = 0.0
-    
+
     # Move model to GPU if available
     if torch.cuda.is_available():
         model = model.cuda()

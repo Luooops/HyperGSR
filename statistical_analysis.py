@@ -419,11 +419,10 @@ def plot_statistical_analysis(results_dir, model1_name, model2_name, metric_name
         print(f"Error creating statistical analysis plots: {str(e)}")
         print("Continuing with the rest of the analysis...")
 
-def calculate_statistical_analysis(model1_path, model2_path, model1_name, model2_name):
+def calculate_statistical_analysis(results_dir, model1_path, model2_path, model1_name, model2_name):
     """Calculate statistical analysis between two model results."""
     
     # Create results directory
-    results_dir = "results/statistical_analysis"
     os.makedirs(results_dir, exist_ok=True)
 
     # Load metrics data
@@ -549,10 +548,11 @@ def calculate_statistical_analysis(model1_path, model2_path, model1_name, model2
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='Calculate statistical analysis between two HyperGSR model results')
+    parser.add_argument('--results_dir', type=str, default='results/statistical_analysis', help='Path to results directory')
     parser.add_argument('--model1_path', type=str, required=True, help='Path to first model metrics CSV file')
     parser.add_argument('--model2_path', type=str, required=True, help='Path to second model metrics CSV file')
     parser.add_argument('--model1_name', type=str, default='Model1', help='Name for first model')
     parser.add_argument('--model2_name', type=str, default='Model2', help='Name for second model')
     args = parser.parse_args()
     
-    calculate_statistical_analysis(args.model1_path, args.model2_path, args.model1_name, args.model2_name)
+    calculate_statistical_analysis(args.results_dir, args.model1_path, args.model2_path, args.model1_name, args.model2_name)

@@ -73,9 +73,9 @@ def evaluate_single_sample(pred_matrix, gt_matrix):
     mae_ec   = mean_absolute_error(list(ec_pred.values()), list(ec_gt.values()))
 
     # 4. Information centrality: centrality based on information flow efficiency
-    ic_pred  = safe_centrality_computation(pred_graph, information_centrality, weight='weight')
-    ic_gt    = safe_centrality_computation(gt_graph, information_centrality, weight='weight')
-    mae_ic   = mean_absolute_error(list(ic_pred.values()), list(ic_gt.values()))
+    # ic_pred  = safe_centrality_computation(pred_graph, information_centrality, weight='weight')
+    # ic_gt    = safe_centrality_computation(gt_graph, information_centrality, weight='weight')
+    # mae_ic   = mean_absolute_error(list(ic_pred.values()), list(ic_gt.values()))
 
     # 5. PageRank: random-walk based centrality with damping
     pr_pred  = safe_centrality_computation(pred_graph, nx.pagerank, weight='weight')
@@ -102,7 +102,7 @@ def evaluate_single_sample(pred_matrix, gt_matrix):
         "mae_deg": mae_deg,
         "mae_bc": mae_bc,
         "mae_ec": mae_ec,
-        "mae_ic": mae_ic,
+        # "mae_ic": mae_ic,
         "mae_pr": mae_pr,
         "mae_katz": mae_katz,
         # "mae_lap": mae_lap,
@@ -123,7 +123,7 @@ def evaluate(pred_matrices, gt_matrices, show_progress=True, from_notebook=False
 
     # Prepare lists for each metric
     # mae_lists = {key: [] for key in ["mae","mae_deg","mae_bc","mae_ec","mae_ic","mae_pr","mae_katz","mae_lap"]}
-    mae_lists = {key: [] for key in ["mae","mae_deg","mae_bc","mae_ec","mae_ic","mae_pr","mae_katz"]}
+    mae_lists = {key: [] for key in ["mae","mae_deg","mae_bc","mae_ec","mae_pr","mae_katz"]}
     clustering_list = []
     laplacian_list = []
 

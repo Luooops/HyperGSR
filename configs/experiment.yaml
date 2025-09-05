@@ -11,7 +11,6 @@ experiment:
   log_val_loss: False                   # Indicates whether to log validation loss every epoch. Could be resource intensive
 
   base_dir: 'results'
-  # run_name: 'run_shrink001_improved'
   run_name: 'run_stp_gsr'
 
   kfold:

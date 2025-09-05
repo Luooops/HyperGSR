@@ -131,8 +131,8 @@ def plot_metrics_compare(
 if __name__ == "__main__":
     plot_metrics_compare(
         csv_a="results/stp_gsr/csv/run_stp_gsr/metrics.csv",
-        csv_b="results/hyper_gsr/csv/trans/run_coord/metrics.csv",
-        labels=("STP-GSR", "HyperGSR(coord)"),
-        out_dir="model_results/plots_coord",
-        prefix="stp_vs_hyper_coord"
+        csv_b="results/hyper_gsr/csv/trans/run_hyper_emb_edgeattr_shrink001/metrics.csv",
+        labels=("STP-GSR", "HyperGSR(edgeattr + shrink001)"),
+        out_dir="model_results/plots_hyper_edgeattr",
+        prefix="stp_vs_hyper_hyper_edgeattr_shrink001"
     )
