@@ -1,0 +1,2 @@
+Peak GPU Usage: 64.4102 MB
+Training Time: 360.07 seconds
