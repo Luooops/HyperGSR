@@ -5,13 +5,13 @@
 N_SUBJECTS = 50
 
 # Number of ROIs in source brain graph for simulated data 
-N_SOURCE_NODES = 35
+N_SOURCE_NODES = 160
 
 # Number of ROIs in target brain graph for simulated data
-N_TARGET_NODES = 160
+N_TARGET_NODES = 268
 
 # Number of traning epochs
-N_EPOCHS = 100
+N_EPOCHS = 60
 
 
 ####** DO NOT MODIFY BELOW **####

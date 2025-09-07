@@ -17,7 +17,7 @@ def topological_measures(data):
     np.fill_diagonal(data, 0)
 
     # create a graph from similarity matrix
-    G = nx.from_numpy_matrix(np.absolute(data))
+    G = nx.from_numpy_array(np.absolute(data))
     U = G.to_undirected()
 
     # Centrality #
@@ -53,7 +53,7 @@ def eigen_centrality(data):
     np.fill_diagonal(data, 0)
 
     # create a graph from similarity matrix
-    G = nx.from_numpy_matrix(np.absolute(data))
+    G = nx.from_numpy_array(np.absolute(data))
     U = G.to_undirected()
 
     # Centrality #

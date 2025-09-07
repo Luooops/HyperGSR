@@ -16,9 +16,9 @@ import warnings
 from sklearn.model_selection import KFold
 from losses import*
 from model import*
-from preprocess import*
-from centrality import *
-from config import N_TARGET_NODES_F, N_SOURCE_NODES_F,N_TARGET_NODES,N_SOURCE_NODES, N_EPOCHS
+from .preprocess import*
+from .centrality import *
+from .config import N_TARGET_NODES_F, N_SOURCE_NODES_F,N_TARGET_NODES,N_SOURCE_NODES, N_EPOCHS
 warnings.filterwarnings("ignore")
 #  GAN
 aligner = Aligner()

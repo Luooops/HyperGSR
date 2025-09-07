@@ -2,7 +2,7 @@ import numpy as np
 from scipy.io import loadmat
 from torch_geometric.data import Data
 import torch
-from config import N_TARGET_NODES_F, N_SOURCE_NODES_F,N_TARGET_NODES,N_SOURCE_NODES
+from .config import N_TARGET_NODES_F, N_SOURCE_NODES_F,N_TARGET_NODES,N_SOURCE_NODES
 
 
 def convert_vector_to_graph_RH(data):

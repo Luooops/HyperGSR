@@ -8,7 +8,7 @@ from torch_geometric.nn import BatchNorm
 import numpy as np
 from torch_geometric.data import Data
 from torch.autograd import Variable
-from config import N_TARGET_NODES_F, N_SOURCE_NODES_F,N_TARGET_NODES,N_SOURCE_NODES
+from .config import N_TARGET_NODES_F, N_SOURCE_NODES_F,N_TARGET_NODES,N_SOURCE_NODES
 
 
 

@@ -1,6 +1,6 @@
 import os.path as osp
 import pickle
-from preprocess import*
+from .preprocess import *
 from scipy.linalg import sqrtm
 import numpy
 from centrality import *
