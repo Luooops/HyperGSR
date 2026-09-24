@@ -5,23 +5,27 @@ from torch_geometric.nn import TransformerConv, GraphNorm
 
 
 class DirectSR(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config=None, *, n_source_nodes=None,
+                 n_target_nodes=None, model_config=None):
+        """Use explicit graph sizes/model_config; config is the legacy adapter."""
         super().__init__()
-        n_source_nodes = config.dataset.n_source_nodes
-        n_target_nodes = config.dataset.n_target_nodes
+        if config is not None:
+            n_source_nodes = config.dataset.n_source_nodes
+            n_target_nodes = config.dataset.n_target_nodes
+            model_config = config.model
 
-        num_heads = config.model.num_heads
-        edge_dim = config.model.edge_dim
-        dropout = config.model.dropout
-        beta = config.model.beta
-        
+        num_heads = model_config.num_heads
+        edge_dim = model_config.edge_dim
+        dropout = model_config.dropout
+        beta = model_config.beta
+
         assert n_target_nodes % num_heads == 0
 
-        self.conv1 = TransformerConv(n_source_nodes, n_source_nodes, 
+        self.conv1 = TransformerConv(n_source_nodes, n_source_nodes,
                                      heads=num_heads, edge_dim=edge_dim,
                                      dropout=dropout, beta=beta)
         self.bn1 = GraphNorm(num_heads * n_source_nodes)
-        self.conv2 = TransformerConv(num_heads * n_source_nodes, n_target_nodes // num_heads, 
+        self.conv2 = TransformerConv(num_heads * n_source_nodes, n_target_nodes // num_heads,
                                      heads=num_heads, edge_dim=edge_dim,
                                      dropout=dropout, beta=beta)
         self.bn2 = GraphNorm(n_target_nodes)

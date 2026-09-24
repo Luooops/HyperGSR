@@ -3,53 +3,40 @@ import torch
 import tempfile
 import numpy as np
 from tqdm import tqdm
-from torch_geometric.data import Data
-import pandas as pd
 import time
 
-from src.models.stp_gsr import STPGSR
-from src.models.direct_sr import DirectSR
-from src.models.hyper_gsr import HyperGSR
+from src.models.build import build_model
+from src.dataset import load_roi_coords_csv
+from src.experiment import seed_experiment
 from src.plot_utils import (
-    plot_grad_flow, 
-    plot_adj_matrices, 
-    create_gif_grad, 
+    plot_grad_flow,
+    plot_adj_matrices,
+    create_gif_grad,
     create_gif_adj,
     plot_losses,
 )
 from src.dual_graph_utils import revert_dual
 
-def load_roi_coords_csv(csv_path: str) -> torch.Tensor:
-    """
-    Read ROI xyz from a CSV with columns: Node,x,y,z
-    Returns:
-        coords: torch.FloatTensor [n_t, 3].
-    """
-    df = pd.read_csv(csv_path)
-    coords = torch.tensor(df[["x", "y", "z"]].to_numpy(), dtype=torch.float32)
-    return coords
 
 def load_model(config):
     # Set random seed before model initialization for reproducible weight initialization
-    random_seed = config.experiment.kfold.random_state
-    torch.manual_seed(random_seed)
-    torch.cuda.manual_seed(random_seed)
-    torch.cuda.manual_seed_all(random_seed)
-    np.random.seed(random_seed)
-    
-    if config.model.name == 'stp_gsr':
-        return STPGSR(config)
-    elif config.model.name == 'direct_sr':
-        return DirectSR(config)
-    elif config.model.name == 'hyper_gsr':
-        return HyperGSR(config)
-    else:
-        raise ValueError(f"Unsupported model type: {config.model.name}")
-    
+    seed_experiment(config.experiment.kfold.random_state)
 
-def eval(config, model, source_data, target_data, critereon, roi_coords_cpu=None):
+    return build_model(
+        n_source_nodes=config.dataset.n_source_nodes,
+        n_target_nodes=config.dataset.n_target_nodes,
+        model_config=config.model,
+    )
+
+
+def evaluate_model(config, model, source_data, target_data, criterion, roi_coords_cpu=None):
+    """Return reconstructed matrices and mean L1 loss; restore training mode.
+
+    source_data/target_data are aligned lists of {'pyg': Data, 'mat': Tensor}.
+    A fresh HyperGSR model requires roi_coords_cpu on its first forward pass.
+    """
     n_target_nodes = config.dataset.n_target_nodes  # n_t
-    
+
     model.eval()
 
     eval_output = []
@@ -58,7 +45,7 @@ def eval(config, model, source_data, target_data, critereon, roi_coords_cpu=None
 
     with torch.no_grad():
         for source, target in zip(source_data, target_data):
-            source_g = source['pyg']    
+            source_g = source['pyg']
             target_m = target['mat']    # (n_t, n_t)
 
             # Move data to GPU if available (for evaluation)
@@ -79,9 +66,9 @@ def eval(config, model, source_data, target_data, critereon, roi_coords_cpu=None
 
             eval_output.append(pred_m)
 
-            t_loss = critereon(model_pred, model_target)
+            t_loss = criterion(model_pred, model_target)
 
-            eval_loss.append(t_loss) 
+            eval_loss.append(t_loss)
 
     eval_loss = torch.stack(eval_loss).mean().item()
 
@@ -90,25 +77,26 @@ def eval(config, model, source_data, target_data, critereon, roi_coords_cpu=None
     return eval_output, eval_loss
 
 
-def train(config, 
-          source_data_train, 
-          target_data_train, 
-          source_data_val, 
+def train(config,
+          source_data_train,
+          target_data_train,
+          source_data_val,
           target_data_val,
           res_dir):
+    """Train one fold, preserving per-sample gradient accumulation and outputs.
+
+    batch_size controls optimizer update frequency, not a PyG batched forward.
+    """
     n_target_nodes = config.dataset.n_target_nodes  # n_t
+    train_config = config.experiment
 
     # Set random seed for reproducibility
-    random_seed = config.experiment.kfold.random_state
-    torch.manual_seed(random_seed)
-    torch.cuda.manual_seed(random_seed)
-    torch.cuda.manual_seed_all(random_seed)
-    np.random.seed(random_seed)
+    seed_experiment(config.experiment.kfold.random_state)
 
     # Initialize model, optmizer, and loss function
     model = load_model(config)
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.experiment.lr)
-    critereon = torch.nn.L1Loss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=train_config.lr)
+    criterion = torch.nn.L1Loss()
 
     roi_coords_cpu = None
     if config.model.name == 'hyper_gsr':
@@ -129,13 +117,13 @@ def train(config,
 
     train_losses = []
     val_losses = []
- 
+
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         model.train()
         step_counter = 0
 
-        for epoch in range(config.experiment.n_epochs):
+        for epoch in range(train_config.n_epochs):
             batch_counter = 0
             epoch_loss = 0.0
 
@@ -144,7 +132,7 @@ def train(config,
             source_train = [source_data_train[i] for i in random_idx]
             target_train = [target_data_train[i] for i in random_idx]
 
-            # Iteratively train on each sample. 
+            # Iteratively train on each sample.
             # (Using single sample training and gradient accummulation as the baseline IMANGraphNet model is memory intensive)
             for source, target in tqdm(zip(source_train, target_train), total=len(source_train)):
                 source_g = source['pyg']
@@ -166,14 +154,14 @@ def train(config,
                 else:
                     model_pred, model_target = model(source_g, target_m)
 
-                loss = critereon(model_pred, model_target)
+                loss = criterion(model_pred, model_target)
                 loss.backward()
 
                 epoch_loss += loss.item()
                 batch_counter += 1
 
                 # Log progress and do mini-batch gradient descent
-                if batch_counter % config.experiment.batch_size == 0 or batch_counter == len(source_train):
+                if batch_counter % train_config.batch_size == 0 or batch_counter == len(source_train):
                     # Record GPU memory usage BEFORE clearing gradients (to capture peak usage)
                     if torch.cuda.is_available():
                         current_gpu_memory = torch.cuda.memory_allocated() / 1024**2  # Convert to MB
@@ -197,7 +185,7 @@ def train(config,
 
                     # Log source, target, and predicted adjacency matrices for this iteration
                     plot_adj_matrices(source_m, target_plot_m, pred_plot_m, step_counter, tmp_dir)
-                    
+
                     # Perform gradient descent
                     optimizer.step()
                     optimizer.zero_grad()
@@ -209,13 +197,17 @@ def train(config,
                     gc.collect()
 
             epoch_loss = epoch_loss / len(source_train)
-            print(f"Epoch {epoch+1}/{config.experiment.n_epochs}, Train Loss: {epoch_loss}")
+            print(f"Epoch {epoch+1}/{train_config.n_epochs}, Train Loss: {epoch_loss}")
             train_losses.append(epoch_loss)
 
             # Log validation loss
-            if config.experiment.log_val_loss:
-                _, val_loss = eval(config, model, source_data_val, target_data_val, critereon, roi_coords_cpu)
-                print(f"Epoch {epoch+1}/{config.experiment.n_epochs}, Val Loss: {val_loss}")
+            if train_config.log_val_loss:
+                _, val_loss = evaluate_model(
+                    config=config, model=model,
+                    source_data=source_data_val, target_data=target_data_val,
+                    criterion=criterion, roi_coords_cpu=roi_coords_cpu,
+                )
+                print(f"Epoch {epoch+1}/{train_config.n_epochs}, Val Loss: {val_loss}")
                 val_losses.append(val_loss)
 
         # Calculate total training time
@@ -244,7 +236,7 @@ def train(config,
 
         # Save simple statistics
         stats_content = f"""Peak GPU Usage: {peak_gpu_memory:.4f} MB\nTraining Time: {total_time:.2f} seconds"""
-        
+
         stats_file = f"{res_dir}/stats.txt"
         with open(stats_file, 'w') as f:
             f.write(stats_content)
@@ -252,5 +244,15 @@ def train(config,
 
     return {
         'model': model,
-        'critereon': critereon,
+        'criterion': criterion,
+        'critereon': criterion,  # Legacy return key kept for existing callers.
+        'roi_coords_cpu': roi_coords_cpu,
     }
+
+
+def eval(config, model, source_data, target_data, critereon, roi_coords_cpu=None):
+    """Legacy signature, including the original misspelled criterion keyword."""
+    return evaluate_model(
+        config=config, model=model, source_data=source_data,
+        target_data=target_data, criterion=critereon, roi_coords_cpu=roi_coords_cpu,
+    )

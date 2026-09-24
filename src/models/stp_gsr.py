@@ -5,15 +5,15 @@ from torch_geometric.nn import TransformerConv, GraphNorm
 
 from src.dual_graph_utils import create_dual_graph, create_dual_graph_feature_matrix
 
-    
+
 class TargetEdgeInitializer(nn.Module):
     """TransformerConv based taregt edge initialization model"""
-    def __init__(self, n_source_nodes, n_target_nodes, num_heads=4, edge_dim=1, 
+    def __init__(self, n_source_nodes, n_target_nodes, num_heads=4, edge_dim=1,
                  dropout=0.2, beta=False):
         super().__init__()
         assert n_target_nodes % num_heads == 0
 
-        self.conv1 = TransformerConv(n_source_nodes, n_target_nodes // num_heads, 
+        self.conv1 = TransformerConv(n_source_nodes, n_target_nodes // num_heads,
                                      heads=num_heads, edge_dim=edge_dim,
                                      dropout=dropout, beta=beta)
         self.bn1 = GraphNorm(n_target_nodes)
@@ -39,17 +39,17 @@ class TargetEdgeInitializer(nn.Module):
         x = torch.masked_select(xt, ut_mask).view(-1, 1)
 
         return x
-    
+
 
 class DualGraphLearner(nn.Module):
     """Update node features of the dual graph"""
-    def __init__(self, in_dim, out_dim=1, num_heads=1, 
+    def __init__(self, in_dim, out_dim=1, num_heads=1,
                  dropout=0.2, beta=False):
         super().__init__()
 
         # Here, we override num_heads to be 1 since we output scalar primal edge weights
         # In future work, we can experiment with multiple heads
-        self.conv1 = TransformerConv(in_dim, out_dim, 
+        self.conv1 = TransformerConv(in_dim, out_dim,
                                      heads=num_heads,
                                      dropout=dropout, beta=beta)
         self.bn1 = GraphNorm(out_dim)
@@ -66,28 +66,32 @@ class DualGraphLearner(nn.Module):
         xt = (xt - xt_min) / (xt_max - xt_min + 1e-8)  # Add epsilon to avoid division by zero
 
         return xt
-    
+
 
 class STPGSR(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config=None, *, n_source_nodes=None,
+                 n_target_nodes=None, model_config=None):
+        """Use explicit graph sizes/model_config; config is the legacy adapter."""
         super().__init__()
-        n_source_nodes = config.dataset.n_source_nodes
-        n_target_nodes = config.dataset.n_target_nodes
+        if config is not None:
+            n_source_nodes = config.dataset.n_source_nodes
+            n_target_nodes = config.dataset.n_target_nodes
+            model_config = config.model
 
         self.target_edge_initializer = TargetEdgeInitializer(
                             n_source_nodes,
                             n_target_nodes,
-                            num_heads=config.model.target_edge_initializer.num_heads,
-                            edge_dim=config.model.target_edge_initializer.edge_dim,
-                            dropout=config.model.target_edge_initializer.dropout,
-                            beta=config.model.target_edge_initializer.beta
+                            num_heads=model_config.target_edge_initializer.num_heads,
+                            edge_dim=model_config.target_edge_initializer.edge_dim,
+                            dropout=model_config.target_edge_initializer.dropout,
+                            beta=model_config.target_edge_initializer.beta
         )
         self.dual_learner = DualGraphLearner(
-                            in_dim=config.model.dual_learner.in_dim,
-                            out_dim=config.model.dual_learner.out_dim,
-                            num_heads=config.model.dual_learner.num_heads,
-                            dropout=config.model.dual_learner.dropout,
-                            beta=config.model.dual_learner.beta
+                            in_dim=model_config.dual_learner.in_dim,
+                            out_dim=model_config.dual_learner.out_dim,
+                            num_heads=model_config.dual_learner.num_heads,
+                            dropout=model_config.dual_learner.dropout,
+                            beta=model_config.dual_learner.beta
         )
 
         # Create dual graph domain: Assume a fully connected simple graph
@@ -100,10 +104,10 @@ class STPGSR(nn.Module):
         device = source_pyg.x.device
         fully_connected_mat = torch.ones((self.n_target_nodes, self.n_target_nodes), dtype=torch.float, device=device)
         dual_edge_index, _ = create_dual_graph(fully_connected_mat)
-        
+
         # Initialize target edges
         target_edge_init = self.target_edge_initializer(source_pyg)
-        # Update target edges in the dual space 
+        # Update target edges in the dual space
         dual_pred_x = self.dual_learner(target_edge_init, dual_edge_index)
 
         # Convert target matrix into edge feature matrix

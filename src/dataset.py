@@ -16,10 +16,10 @@ def load_dataset(config):
     if config.dataset.name == 'csv':
         source_csv_path = config.dataset.source_csv_path
         target_csv_path = config.dataset.target_csv_path
-        
+
         source_mat_all = load_csv_graphs(source_csv_path, n_source_nodes)
         target_mat_all = load_csv_graphs(target_csv_path, n_target_nodes)
-        
+
         # Limit to requested number of samples
         if len(source_mat_all) > n_samples:
             source_mat_all = source_mat_all[:n_samples]
@@ -49,7 +49,7 @@ def load_dataset(config):
         # Initial graph template size
         source_init_matrix_size = config.dataset.source_init_matrix_size
         target_init_matrix_size = config.dataset.target_init_matrix_size
-        
+
         # Number of times Kronecker product is applied to exponentially expand the graph
         n_iterations = config.dataset.n_iterations
 
@@ -77,16 +77,16 @@ def load_dataset(config):
 
     else:
         raise ValueError(f"Unsupported dataset type: {config.dataset.name}")
-    
+
     # Convert to torch tensors
     source_mat_all = [torch.tensor(x, dtype=torch.float) for x in source_mat_all]
     target_mat_all = [torch.tensor(x, dtype=torch.float) for x in target_mat_all]
-        
+
     # Convert to PyG
     node_feat_init = config.dataset.node_feat_init
     node_feat_dim = config.dataset.node_feat_dim
     pyg_partial = partial(create_pyg_graph, node_feature_init=node_feat_init, node_feat_dim=node_feat_dim)
-    
+
     source_pyg_all = [pyg_partial(x, n_source_nodes) for x in source_mat_all]
     target_pyg_all = [pyg_partial(x, n_target_nodes) for x in target_mat_all]
 
@@ -103,6 +103,12 @@ def load_csv_graphs(csv_path: str, n_nodes: int):
     约定：与示例一致，跳过首行、丢弃首列（通常为索引/ID）。
     """
     arr = pd.read_csv(csv_path, header=None, skiprows=1).drop(columns=[0]).to_numpy()
+    expected_edges = n_nodes * (n_nodes - 1) // 2
+    if arr.shape[1] != expected_edges:
+        raise ValueError(
+            f"{csv_path}: expected {expected_edges} edge columns for "
+            f"{n_nodes} ROIs, got {arr.shape[1]}"
+        )
     mats = [MatrixVectorizer.anti_vectorize(row, n_nodes) for row in arr]
     return mats
 
@@ -110,14 +116,14 @@ def load_csv_graphs(csv_path: str, n_nodes: int):
 def create_er_graph(n_nodes, edge_prob):
     G = nx.erdos_renyi_graph(n_nodes, edge_prob)
     adj = nx.adjacency_matrix(G).toarray()
-    
+
     return adj
 
 
 def create_ba_graph(n_nodes, n_edges):
     G = nx.barabasi_albert_graph(n_nodes, n_edges)
     adj = nx.adjacency_matrix(G).toarray()
-    
+
     return adj
 
 
@@ -135,13 +141,13 @@ def create_symmetric_initiator_matrix(size, low=0.5, high=1.0, diagonal_value=0.
     """
     # Generate a random matrix with values uniformly distributed in [low, high]
     matrix = np.random.uniform(low, high, (size, size))
-    
+
     # Make the matrix symmetric
     symmetric_matrix = (matrix + matrix.T) / 2
 
     # Set diagonal entries to the specified value
     np.fill_diagonal(symmetric_matrix, diagonal_value)
-    
+
     return symmetric_matrix
 
 
@@ -207,30 +213,30 @@ def create_sbm_graph(block_sizes, P):
     """
     # Number of nodes
     N = sum(block_sizes)
-    
+
     # Initialize the graph
     G = nx.Graph()
     G.add_nodes_from(range(N))
-    
+
     # Create block membership for each node
     block_membership = []
     current_node = 0
     for block_id, size in enumerate(block_sizes):
         block_membership.extend([block_id] * size)
         current_node += size
-    
+
     # Generate edges based on block memberships and probabilities in P
     for i in range(N):
         for j in range(i + 1, N):
             block_i = block_membership[i]
             block_j = block_membership[j]
             prob_edge = P[block_i, block_j]
-            
+
             if np.random.rand() < prob_edge:
                 G.add_edge(i, j)
 
     adj = nx.adjacency_matrix(G).toarray()
-    
+
     return adj
 
 
@@ -270,5 +276,16 @@ def create_pyg_graph(x, n_nodes, node_feature_init='adj', node_feat_dim=1):
     pos_edge_index = torch.stack([rows.flatten(), cols.flatten()], dim=0)
 
     pyg_graph = Data(x=node_feat, pos_edge_index=pos_edge_index, edge_attr=edge_attr)
-    
+
     return pyg_graph
+
+
+def load_roi_coords_csv(csv_path: str) -> torch.Tensor:
+    """
+    Read ROI xyz from a CSV with columns: Node,x,y,z
+    Returns:
+        coords: torch.FloatTensor [n_t, 3].
+    """
+    df = pd.read_csv(csv_path)
+    coords = torch.tensor(df[["x", "y", "z"]].to_numpy(), dtype=torch.float32)
+    return coords

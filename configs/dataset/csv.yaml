@@ -11,4 +11,4 @@ n_source_nodes: 160
 n_target_nodes: 268
 
 node_feat_init: 'adj'
-node_feat_dim: 160
+node_feat_dim: ${.n_source_nodes}

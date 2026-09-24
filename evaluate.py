@@ -1,10 +1,10 @@
 import os
-import json
 import numpy as np
 import hydra
 import pandas as pd
 
 from src.eval_metrics import evaluate
+from src.experiment import get_run_dir
 
 def _load_npy_matrix_array(path: str) -> np.ndarray:
     """Load npy that may contain a list of (n_t, n_t) arrays or a stacked (N, n_t, n_t) array."""
@@ -36,14 +36,7 @@ def _save_metrics_csv(per_fold, avg, out_dir, filename="metrics.csv"):
 
 @hydra.main(version_base="1.3.2", config_path="configs", config_name="experiment")
 def main(config) -> None:
-    base_dir = config.experiment.base_dir
-    model_name = config.model.name
-    dataset_type = config.dataset.name
-    run_name = config.experiment.run_name
-    if config.model.name == 'hyper_gsr':
-        run_dir = f'{base_dir}/{model_name}/{dataset_type}/{config.model.hyper_dual_learner.mode}/{run_name}/'
-    else:
-        run_dir = f'{base_dir}/{model_name}/{dataset_type}/{run_name}/'
+    run_dir = get_run_dir(config)
 
     if not os.path.isdir(run_dir):
         raise FileNotFoundError(f"run_dir not found: {run_dir}")

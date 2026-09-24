@@ -1,11 +1,11 @@
 import os
 import hydra
 import torch
-from tqdm import tqdm
 import numpy as np
 from sklearn.model_selection import KFold
 
-from src.train import train, eval
+from src.train import train, evaluate_model
+from src.experiment import get_run_dir, seed_experiment
 from src.plot_utils import plot_adj_matrices
 from src.dataset import load_dataset
 
@@ -15,11 +15,7 @@ def main(config):
     torch.cuda.empty_cache()
 
     # Set random seed for reproducibility (before data loading)
-    random_seed = config.experiment.kfold.random_state
-    torch.manual_seed(random_seed)
-    torch.cuda.manual_seed(random_seed)
-    torch.cuda.manual_seed_all(random_seed)
-    np.random.seed(random_seed)
+    seed_experiment(config.experiment.kfold.random_state)
 
     if torch.cuda.is_available():
         print("Running on GPU")
@@ -31,14 +27,7 @@ def main(config):
                random_state=config.experiment.kfold.random_state)
 
     # Initialize folder structure for this run
-    base_dir = config.experiment.base_dir
-    model_name = config.model.name
-    dataset_type = config.dataset.name
-    run_name = config.experiment.run_name
-    if config.model.name == 'hyper_gsr':
-        run_dir = f'{base_dir}/{model_name}/{dataset_type}/{config.model.hyper_dual_learner.mode}/{run_name}/'
-    else:
-        run_dir = f'{base_dir}/{model_name}/{dataset_type}/{run_name}/'
+    run_dir = get_run_dir(config)
 
     # Load dataset
     source_data, target_data = load_dataset(config)
@@ -59,19 +48,24 @@ def main(config):
         target_data_val = [target_data[i] for i in val_idx]
 
         # Train model for this fold
-        train_output = train(config, 
-                              source_data_train, 
-                              target_data_train,
-                              source_data_val,
-                              target_data_val, 
-                              res_dir)
+        train_output = train(
+            config=config,
+            source_data_train=source_data_train,
+            target_data_train=target_data_train,
+            source_data_val=source_data_val,
+            target_data_val=target_data_val,
+            res_dir=res_dir,
+        )
 
-        # Evaluate model for this fold
-        eval_output, eval_loss = eval(config, 
-                                      train_output['model'], 
-                                      source_data_val, 
-                                      target_data_val, 
-                                      train_output['critereon'])
+        # Evaluate model for this fold (geometry is also passed explicitly).
+        eval_output, eval_loss = evaluate_model(
+            config=config,
+            model=train_output['model'],
+            source_data=source_data_val,
+            target_data=target_data_val,
+            criterion=train_output['criterion'],
+            roi_coords_cpu=train_output['roi_coords_cpu'],
+        )
 
         # Final evaluation loss for this fold
         print(f"Final Validation Loss (Target): {eval_loss}")
@@ -82,19 +76,19 @@ def main(config):
         np.save(f'{res_dir}/target.npy', np.array([t['mat'] for t in target_data_val]))
 
 
-        # Plot predictions for a random sample
+        # Plot predictions for the original fixed sample
         idx = 6
         source_mat_test = source_data_val[idx]['mat']
         target_mat_test = target_data_val[idx]['mat']
         eval_output_t = eval_output[idx]
 
-        plot_adj_matrices(source_mat_test, 
-                          target_mat_test, 
-                          eval_output_t, 
-                          idx, 
-                          res_dir, 
+        plot_adj_matrices(source_mat_test,
+                          target_mat_test,
+                          eval_output_t,
+                          idx,
+                          res_dir,
                           file_name=f'eval_sample{idx}')
-        
+
 
 if __name__ == "__main__":
     main()
