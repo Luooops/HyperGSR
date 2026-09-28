@@ -84,7 +84,7 @@ HyperGSR/
 ├── evaluate.py                   # Saved-prediction metrics and fold averages
 ├── main_iman.py                  # Separate IMANGraphNet training entry point
 ├── MatrixVectorizer.py           # Compatibility import for the original path
-├── plot_comparison.py            # STP / Hyper EdgeAttr / Hyper Coord plots
+├── plot_comparison.py            # Arbitrary-model metric comparison plots
 ├── statistical_analysis.py       # Pairwise statistical tests, tables, and plots
 ├── run_statistical_analysis.py   # Analysis entry point with default run paths
 ├── requirements.txt              # All training, evaluation, and analysis dependencies
@@ -342,7 +342,10 @@ python statistical_analysis.py --model1_path results/stp_gsr/csv/stp_local_01/me
 # Plot the three original experiment groups without opening windows
 python plot_comparison.py --output_dir results/comparison_plots --no_show
 
-# Inspect options for --stp_path, --edgeattr_path, and --coord_path
+# Compare any number of runs (directories or metrics.csv files)
+python plot_comparison.py --results_paths results/run_a results/run_b results/run_c results/run_d --names Full "No geometry" "No shrinkage" Baseline --baseline Baseline --output_dir results/ablation_plots --no_show
+
+# Inspect all options; legacy three-path flags remain supported
 python plot_comparison.py --help
 
 # Run the original two-run, per-fold plotting example
@@ -357,8 +360,15 @@ from src.plotting import plot_metrics_compare
 
 data = load_data(stp_gsr_path="a.csv", hyper_edgeattr_path="b.csv", hyper_coord_path="c.csv")
 create_bar_plots(data=data, output_dir="results/plots", show=False)
+data = load_data(results_paths=["a.csv", "b.csv", "c.csv", "d.csv"],
+                 names=["Full", "No geometry", "No shrinkage", "Baseline"])
+create_bar_plots(data=data, output_dir="results/ablation_plots", show=False)
 plot_metrics_compare(csv_a="a.csv", csv_b="b.csv", labels=("A", "B"), out_dir="results/plots")
 ```
+
+`plot_comparison.py` retains all eight existing metrics and accepts any positive number of runs via `--results_paths`. Names default to run directory names and must be unique; use `--names` to override. The first model is the improvement baseline unless `--baseline NAME` is supplied. CSVs must contain `fold` (`fold_N` and/or one `average` row) and all eight finite, non-negative metrics. Bars use the reported average, or the mean of folds if absent; whiskers show sample SD when at least two folds exist, and dots show individual folds. SD is not a confidence interval or significance test. Zero baselines yield N/A relative improvements. One-model inputs omit the improvement heatmap. Radar scores are min–max normalized across the supplied models (ties = 0.5), so they change with the comparison set.
+
+Outputs include the four original figure types in 600-dpi PNG and vector PDF, plus `summary_metrics.csv`, `fold_sd.csv`, and `improvement_percent.csv`. Use `--formats png pdf svg` and `--dpi 300` to customize export. Colors and figure heights adapt to model count; very large comparisons are best read from the bar plots and table. Metric definitions and evaluation are unchanged.
 
 The statistical script excludes the `average` row, performs paired t-tests and Wilcoxon tests across folds, and exports CSV, text, LaTeX, and figures. Both inputs should have matching fold order and metric columns. Tests, effect-size calculations, and significance rules retain their original behavior; the structural refactor does not revalidate the statistical methodology. `STATISTICAL_ANALYSIS_README.md` contains historical examples whose comparison names and information-centrality metric do not fully reflect the current code; use this README and the scripts for current behavior.
 
