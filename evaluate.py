@@ -36,13 +36,19 @@ def _save_metrics_csv(per_fold, avg, out_dir, filename="metrics.csv"):
 
 @hydra.main(version_base="1.3.2", config_path="configs", config_name="experiment")
 def main(config) -> None:
-    run_dir = get_run_dir(config)
+    evaluate_run(get_run_dir(config))
+
+
+def evaluate_run(run_dir) -> None:
+    """Evaluate saved fold predictions in a run directory, without model config."""
+    run_dir = os.fspath(run_dir)
 
     if not os.path.isdir(run_dir):
         raise FileNotFoundError(f"run_dir not found: {run_dir}")
 
     fold_dirs = sorted(
-        [os.path.join(run_dir, d) for d in os.listdir(run_dir) if d.startswith("fold_")]
+        [os.path.join(run_dir, d) for d in os.listdir(run_dir)
+         if d.startswith("fold_") and os.path.isdir(os.path.join(run_dir, d))]
     )
     if not fold_dirs:
         raise RuntimeError(f"No fold_* directories under: {run_dir}")
