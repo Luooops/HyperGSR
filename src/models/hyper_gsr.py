@@ -54,8 +54,6 @@ class HyperGSR(nn.Module):
         heads    = getattr(hd_conf, "heads", 4)
         use_h_emb= (getattr(hd_conf, "use_hyper_emb", True) and mode in ['sage','gat','trans'] and not self.use_geo_priors)
         edge_dim = getattr(hd_conf, "edge_dim", 0)    # set 1 for transformer edge_attr
-        use_shrink_output = getattr(hd_conf, "use_shrink_output", True)
-        shrink_threshold = getattr(hd_conf, "shrink_threshold", 0.01)
 
         # Edge-distance -> feature MLP
         if self.use_geo_priors:
@@ -89,8 +87,6 @@ class HyperGSR(nn.Module):
             heads=heads,
             use_hyper_emb=use_h_emb,
             edge_dim=edge_dim,
-            use_shrink_output=use_shrink_output,
-            shrink_threshold=shrink_threshold,
             use_geo_priors=self.use_geo_priors,
         )
 

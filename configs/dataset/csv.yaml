@@ -3,8 +3,8 @@ name: 'csv'
 n_samples: 279
 
 # CSV path
-source_csv_path: 'gsr_data\slim_csv\func_data_160.csv'
-target_csv_path: 'gsr_data\slim_csv\func_data_268.csv'
+source_csv_path: 'gsr_data/slim_csv/func_data_160.csv'
+target_csv_path: 'gsr_data/slim_csv/func_data_268.csv'
 roi_coords_csv: 'gsr_data/coords_hr.csv'
 
 n_source_nodes: 160

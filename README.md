@@ -168,7 +168,7 @@ The ROI coordinate CSV must contain `x,y,z` columns in target-node order. The cu
 
 - **DirectSR** applies two graph Transformer layers and predicts the HR matrix through `XᵀX`.
 - **STP-GSR** initializes HR connections, represents them as dual-graph nodes, and learns their weights.
-- **HyperGSR** initializes connections and applies two-step message passing: connection nodes → ROI hyperedges → connection nodes. Optional components include distance features, coordinate features, ROI embeddings, and output shrinkage.
+- **HyperGSR** initializes connections and applies two-step message passing: connection nodes → ROI hyperedges → connection nodes. The output head always uses Linear -> ReLU -> min-max. Geometry optionally provides distance and coordinate features in place of the baseline ROI initialization.
 
 STP-GSR and HyperGSR originally use different initialization normalization, so their initializers remain separate. Model `forward` methods receive the target matrix to construct supervision; it is not used to compute predictions.
 
@@ -261,8 +261,6 @@ Main `hyper_dual_learner` settings:
 | `use_hyper_emb` | true | Learn ROI embeddings; coordinate features use the coordinate MLP instead |
 | `use_geo_priors` | false | Enable both distance features and coordinate-derived ROI features; disable the independent ROI embedding table when enabled |
 | `edge_geo_dim` / `dist_norm` | 8 / `zscore` | Distance embedding dimension and normalization |
-| `use_shrink_output` | true | Enable output shrinkage |
-| `shrink_threshold` | 0.01 | Initial value of the learnable threshold, not a fixed threshold |
 
 `use_geo_priors` is the single geometry switch. With `true`, the model creates both `edge_geo_mlp` and `roi_mlp`, concatenates distance features to connection inputs, and uses coordinate-derived ROI representations. In the `trans` branch with `edge_dim>0`, it also supplies scalar distances as incidence attributes, requiring `edge_dim=1`. With `false`, both geometry MLPs are absent, connection inputs remain one-dimensional, and ROI initialization follows `use_hyper_emb`. The non-geometric Transformer branch retains its original learned fallback attributes.
 
@@ -343,7 +341,7 @@ python statistical_analysis.py --model1_path results/stp_gsr/csv/stp_local_01/me
 python plot_comparison.py --output_dir results/comparison_plots --no_show
 
 # Compare any number of runs (directories or metrics.csv files)
-python plot_comparison.py --results_paths results/run_a results/run_b results/run_c results/run_d --names Full "No geometry" "No shrinkage" Baseline --baseline Baseline --output_dir results/ablation_plots --no_show
+python plot_comparison.py --results_paths results/run_a results/run_b results/run_c results/run_d --names Full "No geometry" "ReLU baseline" Baseline --baseline Baseline --output_dir results/ablation_plots --no_show
 
 # Inspect all options; legacy three-path flags remain supported
 python plot_comparison.py --help
@@ -361,7 +359,7 @@ from src.plotting import plot_metrics_compare
 data = load_data(stp_gsr_path="a.csv", hyper_edgeattr_path="b.csv", hyper_coord_path="c.csv")
 create_bar_plots(data=data, output_dir="results/plots", show=False)
 data = load_data(results_paths=["a.csv", "b.csv", "c.csv", "d.csv"],
-                 names=["Full", "No geometry", "No shrinkage", "Baseline"])
+                 names=["Full", "No geometry", "ReLU baseline", "Baseline"])
 create_bar_plots(data=data, output_dir="results/ablation_plots", show=False)
 plot_metrics_compare(csv_a="a.csv", csv_b="b.csv", labels=("A", "B"), out_dir="results/plots")
 ```
@@ -391,61 +389,38 @@ The following existing behaviors remain unchanged:
 
 ## 9. Ablation runs
 
-The commands below use `results/ablation_v1` to keep outputs separate from the existing experiments. They share the default CSV dataset, 100 samples, 3 folds, seed 42, 60 epochs, learning rate 0.001, and accumulation count 16. Reusing the same output directory and run name overwrites that run's outputs.
+HyperGSR now has two primary ablation variants. Both always use
+`Linear -> ReLU -> min-max`; the learnable shrink threshold and its configuration
+fields have been removed. Old CLI overrides for those fields are unsupported.
 
-The four unique HyperGSR configurations form a geometry-by-shrinkage comparison:
+| Variant | use_geo_priors | ROI initialization | Distance features |
+| --- | --- | --- | --- |
+| Baseline | false | Learned ROI embeddings | Off |
+| With geo | true | Coordinate MLP | On |
 
-| Run | Distance features | ROI coordinates | Learned ROI embedding | Shrinkage |
-| --- | --- | --- | --- | --- |
-| `hyper_gsr_baseline` | Off | Off | On | Off |
-| `hyper_gsr_geo` | On | On | Off | Off |
-| `hyper_gsr_shrink001` | Off | Off | On | On, initial threshold 0.01 |
-| `hyper_gsr_geo_shrink001` | On | On | Off | On, initial threshold 0.01 |
+Geometry still replaces learned ROI embeddings with coordinate features and
+uses distances as incidence attributes in `trans` mode. This compares the whole
+geometry package, not distance and coordinate contributions separately.
+Use identical folds, seeds, epochs and data for both variants.
 
-Here, geometry is a bundle of changes: connection-distance features, distance-based incidence attributes, and coordinate-derived ROI features replacing learned ROI embeddings. This comparison does not isolate those three contributions individually.
-
-```powershell
-# STP-GSR
-python main.py model=stp_gsr experiment.base_dir=results/ablation_v1 experiment.run_name=stp_gsr
-
-# DirectSR
-python main.py model=direct_sr experiment.base_dir=results/ablation_v1 experiment.run_name=direct_sr
-
-# HyperGSR baseline: learned ROI embeddings, no geometry, no shrinkage
-python main.py model=hyper_gsr experiment.base_dir=results/ablation_v1 experiment.run_name=hyper_gsr_baseline model.hyper_dual_learner.mode=trans model.hyper_dual_learner.edge_dim=1 model.hyper_dual_learner.use_hyper_emb=true model.hyper_dual_learner.use_geo_priors=false model.hyper_dual_learner.use_shrink_output=false
-
-# HyperGSR geometry: distances and ROI coordinates, no shrinkage
-python main.py model=hyper_gsr experiment.base_dir=results/ablation_v1 experiment.run_name=hyper_gsr_geo model.hyper_dual_learner.mode=trans model.hyper_dual_learner.edge_dim=1 model.hyper_dual_learner.use_hyper_emb=false model.hyper_dual_learner.use_geo_priors=true model.hyper_dual_learner.use_shrink_output=false
-
-# HyperGSR shrinkage only
-python main.py model=hyper_gsr experiment.base_dir=results/ablation_v1 experiment.run_name=hyper_gsr_shrink001 model.hyper_dual_learner.mode=trans model.hyper_dual_learner.edge_dim=1 model.hyper_dual_learner.use_hyper_emb=true model.hyper_dual_learner.use_geo_priors=false model.hyper_dual_learner.use_shrink_output=true model.hyper_dual_learner.shrink_threshold=0.01
-
-# HyperGSR geometry plus shrinkage
-python main.py model=hyper_gsr experiment.base_dir=results/ablation_v1 experiment.run_name=hyper_gsr_geo_shrink001 model.hyper_dual_learner.mode=trans model.hyper_dual_learner.edge_dim=1 model.hyper_dual_learner.use_hyper_emb=false model.hyper_dual_learner.use_geo_priors=true model.hyper_dual_learner.use_shrink_output=true model.hyper_dual_learner.shrink_threshold=0.01
-```
-
-The existing first-fold checkpoints for `hyper_gsr_geo_shrink001` and `run_hyper_emb_coord_shrink001` contain the same module structure: distance MLP, coordinate MLP, one-dimensional Transformer edge attributes, and a shrinkage parameter, with no learned ROI embedding table. Checkpoints do not establish all original training settings or the initial shrinkage threshold. Under the current implementation, `use_geo_priors=true` disables `use_hyper_emb`, even if the latter is explicitly set to true.
-
-For compatibility with the historical experiment name, the following command selects the same effective model configuration as `hyper_gsr_geo_shrink001`; it is not a separate ablation:
+Run from the project root (Windows or Linux):
 
 ```powershell
-python main.py model=hyper_gsr experiment.base_dir=results/ablation_v1 experiment.run_name=hyper_emb_coord_shrink001 model.hyper_dual_learner.mode=trans model.hyper_dual_learner.edge_dim=1 model.hyper_dual_learner.use_hyper_emb=true model.hyper_dual_learner.use_geo_priors=true model.hyper_dual_learner.use_shrink_output=true model.hyper_dual_learner.shrink_threshold=0.01
+python main.py model=hyper_gsr dataset=csv dataset.n_samples=279 experiment.base_dir=results/ablation_v4 experiment.run_name=baseline model.hyper_dual_learner.use_geo_priors=false
+python main.py model=hyper_gsr dataset=csv dataset.n_samples=279 experiment.base_dir=results/ablation_v4 experiment.run_name=with_geo model.hyper_dual_learner.use_geo_priors=true
+
+python evaluate.py model=hyper_gsr dataset=csv experiment.base_dir=results/ablation_v4 experiment.run_name=baseline
+python evaluate.py model=hyper_gsr dataset=csv experiment.base_dir=results/ablation_v4 experiment.run_name=with_geo
 ```
 
-Likewise, the historical `run_hyper_emb_edgeattr_shrink001` checkpoint has the non-geometric learned-ROI structure with shrinkage, matching the current `hyper_gsr_shrink001` structure. A name containing `edgeattr` does not identify an additional independent configuration switch.
-
-Evaluate the six unique runs after training:
-
-```powershell
-python evaluate.py model=stp_gsr experiment.base_dir=results/ablation_v1 experiment.run_name=stp_gsr
-python evaluate.py model=direct_sr experiment.base_dir=results/ablation_v1 experiment.run_name=direct_sr
-python evaluate.py model=hyper_gsr experiment.base_dir=results/ablation_v1 experiment.run_name=hyper_gsr_baseline
-python evaluate.py model=hyper_gsr experiment.base_dir=results/ablation_v1 experiment.run_name=hyper_gsr_geo
-python evaluate.py model=hyper_gsr experiment.base_dir=results/ablation_v1 experiment.run_name=hyper_gsr_shrink001
-python evaluate.py model=hyper_gsr experiment.base_dir=results/ablation_v1 experiment.run_name=hyper_gsr_geo_shrink001
-```
-
-These evaluation commands use the default `trans` result subdirectory and only read saved predictions. They do not reconstruct models, so the geometry and shrinkage overrides are not required for metric calculation. The existing limitations in Section 8 still apply, including the default fallback's `LayerNorm(1)` behavior. No ablation training was launched when preparing these commands.
+For cross-modal runs, replace `dataset=csv` with `dataset=morph35_func160`
+or `dataset=morph35_func268` in both training and evaluation, and use separate
+base directories such as `results/cross_modal_35_160_v4` and
+`results/cross_modal_35_268_v4` to avoid collisions.
+Evaluation reads saved predictions; it does not reconstruct the model.
+Historical results and the isolated `experiments/relu_backup` snapshot are
+retained. Historical shrink checkpoints contain an extra parameter and are not
+strictly compatible with the new model; train new ablations from scratch.
 
 ## 35-ROI morphology input
 

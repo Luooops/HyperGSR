@@ -240,14 +240,13 @@ class TwoStepBipartiteLayer(nn.Module):
 
 class HyperDualLearner(nn.Module):
     """
-    pre (Linear) -> TwoStepBipartiteLayer -> readout -> min-max
+    pre (Linear) -> TwoStepBipartiteLayer -> readout -> ReLU -> min-max
     """
     def __init__(self, n_target_nodes: int, in_dim: int,
         hidden_dim: int = 32, dropout: float = 0.0,
         mode: str = 'spmm', heads: int = 4,
         use_hyper_emb: bool = True, edge_dim: int = 0,
-        use_geo_priors: bool = False,
-        use_shrink_output: bool = False, shrink_threshold: float = 0.01):
+        use_geo_priors: bool = False):
         super().__init__()
         self.n_t = n_target_nodes
         self.pre = nn.Linear(in_dim, hidden_dim)
@@ -262,24 +261,13 @@ class HyperDualLearner(nn.Module):
             use_geo_priors=use_geo_priors,
         )
         self.readout = nn.Linear(hidden_dim, 1)
-        self.use_shrink_output = use_shrink_output
-
-        if use_shrink_output:
-            self.shrink = nn.Parameter(torch.tensor(shrink_threshold))
 
     def forward(self, x_dual: torch.Tensor, x_hyper: torch.Tensor = None,
                 e2h_edge_attr: torch.Tensor = None, h2e_edge_attr: torch.Tensor = None):
         x = self.pre(x_dual)                                  # [M, hidden]
         x = self.layer(x, x_hyper, e2h_edge_attr, h2e_edge_attr)
 
-        if self.use_shrink_output:
-            y_raw = self.readout(x)               # [M, 1]
-            lam   = self.shrink.abs()
-            y_shr = torch.sign(y_raw) * F.relu(torch.abs(y_raw) - lam)
-            y_shr = y_shr.clamp_min(0)
-            return _min_max_normalize(y_shr)
-        else:
-            return _min_max_normalize(self.readout(x))
+        return _min_max_normalize(F.relu(self.readout(x)))
 
 
 

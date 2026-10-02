@@ -26,6 +26,4 @@ hyper_dual_learner:
   edge_geo_dim: 8
   dist_norm: zscore
 
-  # ---- shrink output ----
-  use_shrink_output: True
-  shrink_threshold: 0.01
+  # Output always uses Linear -> ReLU -> min-max.
