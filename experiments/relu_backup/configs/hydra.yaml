@@ -1,0 +1,5 @@
+hydra:
+  version_base: '1.3.2'
+
+  run:
+    dir: "/vol/bitbucket/vl824/GTG-SR/models/STP-GSR/"

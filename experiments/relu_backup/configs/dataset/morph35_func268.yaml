@@ -1,0 +1,13 @@
+defaults:
+  - csv
+  - _self_
+
+# Paired training assumes matching subject order across the source MAT files.
+n_samples: 279
+source_csv_path: 'gsr_data/slim_csv/morph_thickness_data_35_mean.csv'
+target_csv_path: 'gsr_data/slim_csv/func_data_268.csv'
+roi_coords_csv: 'gsr_data/coords_hr.csv'
+n_source_nodes: 35
+n_target_nodes: 268
+node_feat_init: 'adj'
+node_feat_dim: ${.n_source_nodes}

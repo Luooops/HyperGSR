@@ -1,0 +1,7 @@
+defaults:
+  - morph35_func268
+  - _self_
+
+target_csv_path: 'gsr_data/slim_csv/func_data_160.csv'
+roi_coords_csv: 'gsr_data/coords_lr.csv'
+n_target_nodes: 160
