@@ -10,6 +10,7 @@ from pathlib import Path
 import textwrap
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap, to_rgb
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -23,7 +24,7 @@ LABELS = ['MAE', 'Degree MAE', 'Betweenness MAE', 'Eigenvector MAE',
           'PageRank MAE', 'Katz MAE', 'Clustering difference', 'Laplacian distance']
 STYLE = {'font.family': 'sans-serif', 'font.size': 9, 'axes.titlesize': 10,
          'axes.labelsize': 9, 'axes.spines.top': False, 'axes.spines.right': False,
-         'axes.linewidth': .6, 'axes.edgecolor': '#777777', 'text.color': '#252525',
+         'axes.linewidth': .5, 'axes.edgecolor': '#b0b6bc', 'text.color': '#252525',
          'axes.labelcolor': '#252525', 'xtick.color': '#454545', 'ytick.color': '#454545',
          'figure.facecolor': 'white', 'axes.facecolor': 'white', 'savefig.facecolor': 'white',
          'pdf.fonttype': 42, 'ps.fonttype': 42, 'svg.fonttype': 'none'}
@@ -88,9 +89,13 @@ def _inputs(data):
 
 
 def _palette(n):
-    # Stable, color-vision-friendly first ten colors; extend for larger comparisons.
-    base = list(sns.color_palette('colorblind', 10))
-    return base[:n] if n <= 10 else base + list(sns.color_palette('husl', n - 10))
+    # Consistent pastel colors across figures and comparison groups.
+    base = ['#A9C9DF', '#E6C29F', '#B7CEC0', '#C6B9DB', '#E1B5BC',
+            '#ACD5D2', '#D9CF9F', '#B9C0D6', '#D3C2B3', '#C8D5AE']
+    colors = [to_rgb(color) for color in base[:n]]
+    if n > len(base):
+        colors.extend(sns.husl_palette(n - len(base), s=.45, l=.78))
+    return colors
 
 
 def _wrap(names, width=23):
@@ -128,14 +133,14 @@ def create_bar_plots(data=None, *, output_dir='.', show=True, formats=('png', 'p
         for k, (ax, metric, label) in enumerate(zip(axes.flat, METRICS, LABELS)):
             y = np.arange(n)
             vals = means[metric].to_numpy()
-            ax.barh(y, vals, color=colors, height=.62, zorder=2)
+            ax.barh(y, vals, color=colors, height=.58, edgecolor='white', linewidth=.5, zorder=2)
             for j, raw in enumerate(folds):
                 if len(raw) >= 2:
                     ax.errorbar(vals[j], j, xerr=sd.iloc[j][metric], fmt='none',
-                                ecolor='#333333', capsize=2, elinewidth=.8, zorder=3)
+                                ecolor='#626b73', capsize=2, elinewidth=.7, zorder=3)
                 if len(raw):
                     ax.scatter(raw[metric], j + np.linspace(-.13, .13, len(raw)),
-                               s=9, facecolor='white', edgecolor='#444444', linewidth=.5, zorder=4)
+                               s=9, facecolor='white', edgecolor='#626b73', linewidth=.5, zorder=4)
             extent = np.maximum(vals + sd[metric].fillna(0).to_numpy(),
                                 [raw[metric].max() if len(raw) else 0 for raw in folds])
             limit = max(float(extent.max()), 1e-12)
@@ -145,7 +150,7 @@ def create_bar_plots(data=None, *, output_dir='.', show=True, formats=('png', 'p
             ax.set_yticks(y, _wrap(means.index))
             ax.invert_yaxis()
             ax.set_title(f'{chr(97 + k)}   {label}', loc='left', pad=9)
-            ax.grid(axis='x', color='#e6e6e6', linewidth=.6, zorder=0)
+            ax.grid(axis='x', color='#edf0f2', linewidth=.5, zorder=0)
             ax.set_axisbelow(True)
             ax.tick_params(axis='y', length=0)
             ax.ticklabel_format(axis='x', style='sci', scilimits=(-3, 4), useMathText=True)
@@ -163,7 +168,10 @@ def create_improvement_heatmap(data=None, *, output_dir='.', show=True,
     with plt.rc_context(STYLE):
         fig, ax = plt.subplots(figsize=(12, max(2.6, 1.6 + .48 * len(improvement))), layout='constrained')
         bound = max(1., float(improvement.abs().max().max())) if improvement.notna().any().any() else 1.
-        sns.heatmap(improvement, ax=ax, annot=True, fmt='.1f', cmap='BrBG',
+        cmap = LinearSegmentedColormap.from_list(
+            'pastel_diverging', ['#DDB7A5', '#FAFAF8', '#A9CBC5'])
+        sns.heatmap(improvement, ax=ax, annot=True, fmt='.1f', cmap=cmap,
+                    annot_kws={'color': '#303840', 'fontsize': 9},
                     vmin=-bound, vmax=bound, center=0, linewidths=.6, linecolor='white',
                     cbar_kws={'label': 'Relative improvement (%)'},
                     xticklabels=_wrap(LABELS, 14), yticklabels=_wrap(improvement.index))
@@ -184,8 +192,8 @@ def create_radar_chart(data=None, *, output_dir='.', show=True, formats=('png', 
     with plt.rc_context(STYLE):
         fig, ax = plt.subplots(figsize=(9, max(6, .28 * len(means))), subplot_kw={'projection': 'polar'}, layout='constrained')
         for i, (name, row) in enumerate(scores.iterrows()):
-            ax.plot(angles, np.r_[row.to_numpy(), row.iloc[0]], color=_palette(len(means))[i],
-                    linewidth=1.4, marker='o', markersize=3, linestyle=['-', '--', ':', '-.'][i % 4], label=name)
+            ax.plot(angles, np.r_[row.to_numpy(), row.iloc[0]], color=np.asarray(_palette(len(means))[i]) * .8,
+                    linewidth=1.6, marker='o', markersize=3, linestyle=['-', '--', ':', '-.'][i % 4], label=name)
         ax.set_theta_offset(np.pi / 2)
         ax.set_theta_direction(-1)
         ax.set_xticks(angles[:-1], _wrap(LABELS, 16))
@@ -215,7 +223,7 @@ def create_summary_table(data=None, *, output_dir='.', show=True, formats=('png'
         table.set_fontsize(8)
         for (r, c), cell in table.get_celld().items():
             cell.set_edgecolor('white')
-            cell.set_facecolor('#e8edf1' if r == 0 else ('#f4f6f8' if r % 2 else 'white'))
+            cell.set_facecolor('#edf2f5' if r == 0 else ('#f8f9fa' if r % 2 else 'white'))
             if r == 0:
                 cell.set_text_props(weight='bold')
             elif c >= 0 and means.iloc[r - 1, c] == means.iloc[:, c].min():
